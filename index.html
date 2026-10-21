@@ -1,0 +1,229 @@
+import React, { useEffect, useState, useRef } from 'react';
+import { supabase } from './lib/supabase';
+import { VideoItem } from './types';
+import { VideoCard } from './components/VideoCard';
+import { CommentsModal } from './components/CommentsModal';
+import { CreateModal } from './components/CreateModal';
+import { AuthModal } from './components/AuthModal';
+import { ProfileView } from './components/ProfileView';
+import { SplashScreen, VybzLogo } from './components/Splash';
+import { Home, Compass, PlusSquare, Bell, User as UserIcon } from 'lucide-react';
+
+export const App: React.FC = () => {
+  const [splash, setSplash] = useState(true);
+  const [currentUser, setCurrentUser] = useState<any>(null);
+  const [videos, setVideos] = useState<VideoItem[]>([]);
+  const [feedTab, setFeedTab] = useState<'foryou' | 'following'>('foryou');
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  // Modals & Navigation state
+  const [activeCommentsVideoId, setActiveCommentsVideoId] = useState<string | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [viewingProfileId, setViewingProfileId] = useState<string | null>(null);
+
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Initial Auth status
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setCurrentUser(session?.user ?? null);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setCurrentUser(session?.user ?? null);
+    });
+
+    loadVideos();
+
+    const timer = setTimeout(() => setSplash(false), 1400);
+    return () => {
+      subscription.unsubscribe();
+      clearTimeout(timer);
+    };
+  }, [feedTab]);
+
+  const loadVideos = async () => {
+    let query = supabase
+      .from('videos')
+      .select('*, profiles(*)')
+      .order('created_at', { ascending: false })
+      .limit(20);
+
+    const { data } = await query;
+    if (data && data.length > 0) {
+      setVideos(data as VideoItem[]);
+    } else {
+      // Fallback sample short clips for MVP testing
+      setVideos([
+        {
+          id: 'demo-1',
+          user_id: 'sample-1',
+          video_url: 'https://assets.mixkit.co/videos/preview/mixkit-vertical-portrait-of-a-woman-dancing-in-a-nightclub-43229-large.mp4',
+          caption: 'Neon vibes only! Turn the volume up 🔥 #nightlife #vybz #cyberpunk',
+          hashtags: ['#nightlife', '#vybz'],
+          views_count: 1420,
+          likes_count: 320,
+          comments_count: 12,
+          created_at: new Date().toISOString(),
+          profiles: {
+            id: 'sample-1',
+            username: 'cyberqueen',
+            full_name: 'Cyber Queen',
+            avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+            is_verified: true
+          }
+        },
+        {
+          id: 'demo-2',
+          user_id: 'sample-2',
+          video_url: 'https://assets.mixkit.co/videos/preview/mixkit-skater-doing-a-trick-in-the-street-42571-large.mp4',
+          caption: 'Sunset kickflips downtown 🛹 #skate #urban #raw',
+          hashtags: ['#skate', '#urban'],
+          views_count: 2890,
+          likes_count: 890,
+          comments_count: 45,
+          created_at: new Date().toISOString(),
+          profiles: {
+            id: 'sample-2',
+            username: 'skateking',
+            full_name: 'Tony Flow',
+            avatar_url: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
+            is_verified: false
+          }
+        }
+      ]);
+    }
+  };
+
+  const handleScroll = () => {
+    if (!containerRef.current) return;
+    const scrollPosition = containerRef.current.scrollTop;
+    const itemHeight = containerRef.current.clientHeight;
+    const index = Math.round(scrollPosition / itemHeight);
+    if (index !== activeIndex) {
+      setActiveIndex(index);
+    }
+  };
+
+  if (splash) return <SplashScreen />;
+
+  return (
+    <div className="w-full h-screen bg-black flex justify-center items-center">
+      {/* Mobile Screen Wrapper */}
+      <div className="relative w-full max-w-md h-full bg-black overflow-hidden flex flex-col shadow-2xl">
+        
+        {/* Top Header Navigation (Only shown on feed) */}
+        {!viewingProfileId && (
+          <div className="absolute top-0 inset-x-0 z-30 flex items-center justify-between px-4 pt-10 pb-4 bg-gradient-to-b from-black/80 to-transparent">
+            <VybzLogo size={20} />
+            <div className="flex gap-4 text-sm font-black">
+              <button
+                onClick={() => setFeedTab('following')}
+                className={`transition ${feedTab === 'following' ? 'text-white border-b-2 border-vybz-green' : 'text-gray-400'}`}
+              >
+                Following
+              </button>
+              <button
+                onClick={() => setFeedTab('foryou')}
+                className={`transition ${feedTab === 'foryou' ? 'text-white border-b-2 border-vybz-green' : 'text-gray-400'}`}
+              >
+                For You
+              </button>
+            </div>
+            <div className="w-6" /> {/* Balance spacer */}
+          </div>
+        )}
+
+        {/* Dynamic Screen Area */}
+        {viewingProfileId ? (
+          <ProfileView
+            userId={viewingProfileId}
+            currentUserId={currentUser?.id}
+            onBack={() => setViewingProfileId(null)}
+            onVideoClick={() => setViewingProfileId(null)}
+          />
+        ) : (
+          /* Fullscreen Vertical Snap Feed */
+          <div
+            ref={containerRef}
+            onScroll={handleScroll}
+            className="w-full h-full overflow-y-scroll snap-y snap-mandatory no-scrollbar"
+          >
+            {videos.map((video, idx) => (
+              <VideoCard
+                key={video.id}
+                video={video}
+                isActive={idx === activeIndex}
+                currentUserId={currentUser?.id}
+                onOpenComments={(id) => setActiveCommentsVideoId(id)}
+                onProfileClick={(userId) => setViewingProfileId(userId)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Bottom Persistent Bar */}
+        <div className="absolute bottom-0 inset-x-0 z-30 bg-vybz-bg/95 backdrop-blur-lg border-t border-vybz-border flex justify-around items-center py-2.5 px-2">
+          <button onClick={() => setViewingProfileId(null)} className="flex flex-col items-center text-white">
+            <Home size={22} />
+            <span className="text-[10px] mt-1 font-semibold">Home</span>
+          </button>
+          
+          <button onClick={() => alert("Search features ready!")} className="flex flex-col items-center text-gray-400 hover:text-white">
+            <Compass size={22} />
+            <span className="text-[10px] mt-1 font-semibold">Discover</span>
+          </button>
+
+          {/* Special Create Post Button */}
+          <button
+            onClick={() => currentUser ? setShowCreateModal(true) : setShowAuthModal(true)}
+            className="bg-vybz-green text-black px-3.5 py-1.5 rounded-xl font-bold flex items-center justify-center hover:scale-105 transition active:scale-95 shadow-[0_0_15px_rgba(0,255,102,0.4)]"
+          >
+            <PlusSquare size={20} />
+          </button>
+
+          <button onClick={() => alert("No new notifications")} className="flex flex-col items-center text-gray-400 hover:text-white">
+            <Bell size={22} />
+            <span className="text-[10px] mt-1 font-semibold">Inbox</span>
+          </button>
+
+          <button
+            onClick={() => currentUser ? setViewingProfileId(currentUser.id) : setShowAuthModal(true)}
+            className="flex flex-col items-center text-gray-400 hover:text-white"
+          >
+            <UserIcon size={22} />
+            <span className="text-[10px] mt-1 font-semibold">Profile</span>
+          </button>
+        </div>
+
+        {/* Modals */}
+        {activeCommentsVideoId && (
+          <CommentsModal
+            videoId={activeCommentsVideoId}
+            currentUserId={currentUser?.id}
+            onClose={() => setActiveCommentsVideoId(null)}
+          />
+        )}
+
+        {showCreateModal && (
+          <CreateModal
+            currentUserId={currentUser.id}
+            onClose={() => setShowCreateModal(false)}
+            onUploaded={() => {
+              loadVideos();
+              alert("Video posted successfully!");
+            }}
+          />
+        )}
+
+        {showAuthModal && (
+          <AuthModal onClose={() => setShowAuthModal(false)} />
+        )}
+
+      </div>
+    </div>
+  );
+};
+
+export default App;
